@@ -1,39 +1,82 @@
-import express, {
-  type Express,
-  type Request,
-  type Response,
-  type NextFunction,
-  type ErrorRequestHandler,
-} from "express";
+import express, { type Express, type Request, type Response } from "express";
 import connectDB from "./config/database.ts";
 import User from "./models/user.ts";
+import {
+  SignupSchema,
+  UpdateProfileSchema,
+  LoginSchema,
+} from "./utils/validator.ts";
+import { z } from "zod";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import cookieParser from "cookie-parser";
+import userAuth from "./middlewares/auth.ts";
+import { StatusCodes } from "http-status-codes";
 
 const app: Express = express();
 
 app.use(express.json());
 
+app.use(cookieParser());
+
 app.post("/signup", async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName, email, password, age, gender } = req.body;
+    const validatedData = SignupSchema.parse(req.body);
 
-    // const existingUser = await User.findOne({ email });
-    // if (existingUser) {
-    //   return res.status(400).json({ message: "User already exists" });
-    // } Don't even need User.findOne({ email }) beforehand because the schema has unique: true which throws error code 11000 automatically.
-
+    const hashedPassword = await bcrypt.hash(validatedData.password, 10);
     const user = new User({
-      firstName,
-      lastName,
-      email,
-      password,
-      age,
-      gender,
+      ...validatedData,
+      password: hashedPassword,
     });
-    await user.save();
-    return res.status(201).json({ message: "User created successfully" });
+    const newUser = await user.save();
+    return res
+      .status(StatusCodes.CREATED)
+      .json({ message: "User created successfully", user: newUser });
   } catch (error) {
-    console.error("Error creating user:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    if (error instanceof z.ZodError) {
+      return res.status(StatusCodes.BAD_REQUEST).json({ errors: error.issues }); // Clean field-by-field validation error messages!
+    }
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ message: "Internal server error" });
+  }
+});
+
+app.post("/login", async (req: Request, res: Response) => {
+  try {
+    const validatedData = LoginSchema.parse(req.body);
+    const user = await User.findOne({ email: validatedData.email });
+    if (!user) {
+      return res
+        .status(StatusCodes.UNAUTHORIZED)
+        .json({ message: "Invalid credentials" });
+    }
+    const isPasswordValid = await user.validatePassword(validatedData.password);
+    if (!isPasswordValid) {
+      return res
+        .status(StatusCodes.UNAUTHORIZED)
+        .json({ message: "Invalid credentials" });
+    }
+    // Create JWT Token
+    const token = user.getJWT();
+
+    // Put the token in cookie
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    });
+    return res
+      .status(StatusCodes.OK)
+      .json({ message: "Login successful", user });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(StatusCodes.BAD_REQUEST).json({ errors: error.issues }); // Clean field-by-field validation error messages!
+    }
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ message: "Internal server error" });
   }
 });
 
@@ -42,51 +85,61 @@ app.get("/user", async (req: Request, res: Response) => {
     const { email } = req.body;
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res
+        .status(StatusCodes.NOT_FOUND)
+        .json({ message: "User not found" });
     }
-    return res.status(200).json(user);
+    return res.status(StatusCodes.OK).json(user);
   } catch (error) {
     console.error("Error fetching user:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ message: "Internal server error" });
+  }
+});
+
+app.get("/profile", userAuth, async (req: Request, res: Response) => {
+  try {
+    // get the user from the cookie
+    const user = req.user;
+    return res.status(StatusCodes.OK).json(user);
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ message: "Internal server error" });
   }
 });
 
 app.get("/feed", async (req: Request, res: Response) => {
   try {
     const users = await User.find({});
-    return res.status(200).json(users);
+    return res.status(StatusCodes.OK).json(users);
   } catch (error) {
     console.error("Error fetching users:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ message: "Internal server error" });
   }
 });
 
 app.patch("/user", async (req: Request, res: Response) => {
   try {
-    const { userId, ...updates } = req.body; // Separate userId from whatever fields were passed
+    // Zod validates everything, drops unknown/hacker keys, and type-checks!
+    const validatedData = UpdateProfileSchema.parse(req.body);
 
-    if (!userId) {
-      return res.status(400).json({ message: "userId is required" });
-    }
-
-    const user = await User.findByIdAndUpdate(userId, updates, {
-      returnDocument: "after", // Returns the updated document instead of old one
-      runValidators: true, // Enforces schema rules (e.g. enum: ["male", "female"])
+    const user = await User.findByIdAndUpdate(req.body.userId, validatedData, {
+      returnDocument: "after",
     });
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    console.log("Updated user:", user);
-
-    return res.status(200).json({
-      message: "User updated successfully",
-      data: user,
-    });
+    return res.status(StatusCodes.OK).json({ data: user });
   } catch (error) {
-    console.error("Error updating user:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    if (error instanceof z.ZodError) {
+      return res.status(StatusCodes.BAD_REQUEST).json({ errors: error.issues }); // Clean field-by-field validation error messages!
+    }
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ message: "Internal server error" });
   }
 });
 
@@ -95,12 +148,18 @@ app.delete("/user", async (req: Request, res: Response) => {
     const { userId } = req.body;
     const user = await User.findByIdAndDelete(userId);
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res
+        .status(StatusCodes.NOT_FOUND)
+        .json({ message: "User not found" });
     }
-    return res.status(200).json({ message: "User deleted successfully" });
+    return res
+      .status(StatusCodes.OK)
+      .json({ message: "User deleted successfully" });
   } catch (error) {
     console.error("Error deleting user:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ message: "Internal server error" });
   }
 });
 

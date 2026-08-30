@@ -1,27 +1,48 @@
-import mongoose, { Schema, Model } from "mongoose";
+import mongoose, { Schema, Model, type InferSchemaType } from "mongoose";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { type ISignupSchema } from "../utils/validator.ts";
 
-export interface IUser {
-  firstName: string;
-  lastName: string;
-  email: string;
-  password: string;
-  age: number;
-  gender: "Male" | "Female";
+// 1. Declare method signatures
+export interface IUserMethods {
+  validatePassword(candidatePassword: string): Promise<boolean>;
+  getJWT(): string;
 }
 
-const userSchema = new Schema<IUser>(
+// 2. Define Model type
+export type UserModel = Model<ISignupSchema, {}, IUserMethods>;
+
+const userSchema = new Schema<ISignupSchema, UserModel, IUserMethods>(
   {
     firstName: { type: String, required: true },
     lastName: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     age: { type: Number, required: true },
-    gender: { type: String, required: true, enum: ["male", "female"] },
+    gender: { type: String, required: true },
+    profilePicture: { type: String },
+    about: { type: String, default: "" },
+    skills: { type: [String], default: [] },
+    projects: { type: [String], default: [] },
+    experience: { type: [String], default: [] },
+    education: { type: [String], default: [] },
   },
   { timestamps: true },
 );
 
-// Pass generic to model<IUser>
-const User: Model<IUser> = mongoose.model<IUser>("User", userSchema);
+// Instance method for password check
+userSchema.methods.validatePassword = async function (
+  candidatePassword: string,
+) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
 
+// Instance method for JWT generation
+userSchema.methods.getJWT = function () {
+  return jwt.sign({ userId: this._id }, process.env.JWT_SECRET || "secret", {
+    expiresIn: "7d",
+  });
+};
+
+const User = mongoose.model<ISignupSchema, UserModel>("User", userSchema);
 export default User;
