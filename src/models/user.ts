@@ -1,5 +1,5 @@
 import mongoose, { Schema } from "mongoose";
-import { type ISignupSchema } from "../utils/validator.ts";
+import { type ISignupSchema } from "../utils/auth.validator.ts";
 
 // 1. Declare method signatures
 // export interface IUserMethods {
@@ -43,7 +43,7 @@ const userSchema = new Schema<ISignupSchema>(
 //   return bcrypt.compare(candidatePassword, this.password);
 // };
 
-// // Instance method for JWT generation
+// Instance method for JWT generation
 // userSchema.methods.getJWT = function () {
 //   return jwt.sign({ userId: this._id }, process.env.JWT_SECRET || "secret", {
 //     expiresIn: "7d",

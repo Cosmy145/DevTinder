@@ -1,5 +1,5 @@
 import Express, { Router, type Request, type Response } from "express";
-import { SignupSchema, LoginSchema } from "../utils/validator.ts";
+import { SignupSchema, LoginSchema } from "../utils/auth.validator.ts";
 import * as AuthService from "../services/auth.service.ts";
 import User from "../models/user.ts";
 import { StatusCodes } from "http-status-codes";

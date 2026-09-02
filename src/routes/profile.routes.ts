@@ -6,7 +6,7 @@ import {
   ChangePasswordSchema,
   DeleteAccountSchema,
   UpdateProfileSchema,
-} from "../utils/validator.ts";
+} from "../utils/profile.validator.ts";
 import { z } from "zod";
 import * as AuthService from "../services/auth.service.ts";
 
@@ -27,24 +27,21 @@ router.get("/view", userAuth, async (req: Request, res: Response) => {
 
 router.patch("/edit", userAuth, async (req: Request, res: Response) => {
   try {
-    // Zod validates everything, drops unknown/hacker keys, and type-checks!
     const validatedData = UpdateProfileSchema.parse(req.body);
+    const loggedInUser = req.user!;
 
-    const user = await User.findByIdAndUpdate(req.user!._id, validatedData, {
-      returnDocument: "after",
-    });
+    // 1. Merge validated updates directly onto the user document
+    Object.assign(loggedInUser, validatedData);
 
-    if (!user) {
-      return res
-        .status(StatusCodes.NOT_FOUND)
-        .json({ message: "User not found after update" });
-    }
+    // 2. Persist to MongoDB
+    await loggedInUser.save();
 
-    return res.status(StatusCodes.OK).json({ data: user });
+    return res.status(StatusCodes.OK).json({ data: loggedInUser });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(StatusCodes.BAD_REQUEST).json({ errors: error.issues }); // Clean field-by-field validation error messages!
+      return res.status(StatusCodes.BAD_REQUEST).json({ errors: error.issues });
     }
+    console.error("Error updating profile:", error);
     return res
       .status(StatusCodes.INTERNAL_SERVER_ERROR)
       .json({ message: "Internal server error" });
@@ -88,7 +85,7 @@ router.patch(
 
       // 5. Hash new password & save
       user.password = await AuthService.hashPassword(newPassword);
-      await user.save();
+      await user.save(); //because document is already in hand.
 
       return res
         .status(StatusCodes.OK)

@@ -1,4 +1,4 @@
-import type { ISignupSchema } from "../utils/validator.ts";
+import type { ISignupSchema } from "../utils/auth.validator.ts";
 import type { HydratedDocument } from "mongoose";
 
 declare global {
