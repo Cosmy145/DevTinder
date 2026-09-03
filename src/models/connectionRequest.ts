@@ -4,7 +4,7 @@ const connectionRequestSchema = new mongoose.Schema(
   {
     sender: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: "User", //to use populate later and basically mongodb version of sql's JOIN.
       required: true,
     },
     receiver: {

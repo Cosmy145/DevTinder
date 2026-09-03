@@ -3,7 +3,10 @@ import userAuth from "../middlewares/auth.ts";
 import { StatusCodes } from "http-status-codes";
 import ConnectionRequest from "../models/connectionRequest.ts";
 import mongoose from "mongoose";
-import { SendConnectionRequestSchema } from "../utils/request.validator.ts";
+import {
+  ReviewConnectionRequestSchema,
+  SendConnectionRequestSchema,
+} from "../utils/request.validator.ts";
 import z from "zod";
 import User from "../models/user.ts";
 
@@ -63,11 +66,6 @@ router.post(
         message,
         data: connectionRequest,
       });
-
-      return res.status(StatusCodes.CREATED).json({
-        message: `Connection request ${status} successfully`,
-        data: connectionRequest,
-      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res
@@ -81,5 +79,59 @@ router.post(
     }
   },
 );
+
+router.post(
+  "/review/:status/:requestId",
+  userAuth,
+  async (req: Request, res: Response) => {
+    try {
+      // 1. Validate the route parameters
+      const { status, requestId } = ReviewConnectionRequestSchema.parse(
+        req.params,
+      );
+      const loggedInUserId = req.user!._id;
+
+      // 2. Find request by its ID where loggedInUser is the receiver and status is 'interested'
+      const connectionRequest = await ConnectionRequest.findOne({
+        _id: requestId,
+        receiver: loggedInUserId,
+        status: "interested",
+      });
+
+      if (!connectionRequest) {
+        return res
+          .status(StatusCodes.NOT_FOUND)
+          .json({ message: "Connection request not found or already reviewed" });
+      }
+
+      // 3. Update status and save
+      connectionRequest.status = status;
+      const savedRequest = await connectionRequest.save();
+
+      // 4. Send clear, contextual response
+      const message =
+        status === "accepted"
+          ? "Connection request accepted"
+          : "Connection request rejected";
+
+      return res.status(StatusCodes.OK).json({
+        message,
+        data: savedRequest,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res
+          .status(StatusCodes.BAD_REQUEST)
+          .json({ errors: error.issues });
+      }
+
+      console.error("Error reviewing connection request:", error);
+      return res
+        .status(StatusCodes.INTERNAL_SERVER_ERROR)
+        .json({ message: "Internal server error" });
+    }
+  },
+);
+
 
 export default router;

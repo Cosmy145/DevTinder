@@ -30,6 +30,16 @@ router.post("/signup", async (req: Request, res: Response) => {
 
     const newUser = await user.save();
 
+    // 3. create a JWT
+    const token = AuthService.generateToken(user._id);
+    // 4. put the jwt in a cookie
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    });
+
     return res
       .status(StatusCodes.CREATED)
       .json({ message: "User created successfully", user: newUser });
